@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Node control</title>
+    <link href="public/js/viz/vis.min.css" rel="stylesheet" type="text/css" />
+    <style type="text/css">
+        .networkGraph {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            border: 1px solid lightgray;
+        }
+        .networkGraph#linksNetwork{
+            /*right: 50%;*/
+        }
+        .networkGraph#connectionsNetwork{
+            left: 200px;
+        }
+    </style>
+</head>
+<body>
+<!--<div id="linksNetwork" class="networkGraph"></div>-->
+<div id="connectionsNetwork" class="networkGraph"></div>
+<input id="refreshNodes" type="button" value="Spawn">
+</body>
+<script src="public/js/viz/vis.min.js" type="text/javascript"></script>
+<script src="public/js/jquery-3.0.0.min.js" type="text/javascript"></script>
+<script src="public/js/socket.io.js"></script>
+<script src="public/js/main.js" type="text/javascript"></script>
+</html>
