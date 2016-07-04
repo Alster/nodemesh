@@ -55,24 +55,27 @@ socketMaster.on('connect', ()=> {
 let nodes = []
 let socket = io(window.location.href)
 
+function packToBroadcastFormat(action) {
+    return 'broadcast:::' + action
+}
 socket.on('connect', ()=> {
     drawer.clear()
-    socket.emit('imWebApp', null, ()=>{
+    socket.emit('imWebApp', null, ()=> {
         console.log('registered as webApp')
         applyNodeAPI(socket)
     })
 
-    socket.on('nodeBirth', data=>{
+    socket.on(packToBroadcastFormat('nodeBirth'), data=> {
         console.log(`node birthed`)
         drawer.addNode(data.info)
     })
 })
 
-function applyNodeAPI(socket){
+function applyNodeAPI(socket) {
     socket.emit('getList', null, data=> {
         console.log(`Getted stored nodes list ${data.nodes.length}`)
-        getNodesTree(data.connectedTo)
         data.nodes.forEach(n=>getNodesTree(n))
+        data.outputs.forEach(o=>getNodesTree(o))
     })
 }
 
@@ -89,14 +92,15 @@ function getNodesTree(from) {
     nodeSock.on('connect', ()=> {
         nodeSock.emit('getList', null, data=> {
             data.nodes.forEach(n=>getNodesTree(n))
-            if (!data.connectedTo) return;
-            drawer.addEdge({
-                from: from.id,
-                to: data.connectedTo.id
+            if (!data.outputs) return;
+            data.outputs.forEach(o=> {
+                drawer.addEdge({
+                    from: from.id,
+                    to: o.id
+                })
+                console.log(`${from.port} has connected to  ${o.port}, list length is ${data.nodes.length}`)
+                getNodesTree(o)
             })
-            console.log(`${from.port} has connected to  ${data.connectedTo.port}, list length is ${data.nodes.length}`)
-            getNodesTree(data.connectedTo)
-
             nodeSock.close()
         })
     })
@@ -106,7 +110,5 @@ function containsNode(node) {
     if (nodes.some(n=>n.id === node.id)) return true;
 }
 
-$('#refreshNodes').on('click', ()=> {
-    socketMaster.emit('spawn', null, ()=> {
-    })
-})
+$('#refreshNodes').on('click', ()=> socketMaster.emit('spawn'))
+$('#getPlayers').on('click', ()=> socket.emit('getPlayers'))

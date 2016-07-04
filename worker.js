@@ -1,7 +1,9 @@
+Error.stackTraceLimit = Infinity
 require('./src/log.js')
 const http = require('http')
 const co = require('co')
 const fs = require('fs')
+const Roles = require('./roles.js')
 
 const express = require('express')
 const app = express()
@@ -13,6 +15,15 @@ const mesh = new (require('./src/nodemesh.js'))({
     role: process.env.role,
     httpServer: server
 })
+
+// mesh.broadcaster.on(Roles.GameServer, 'getPlayer', (id, sendAnswer)=>{
+//     sendAnswer('hi, im ' + mesh.port)
+// })
+//
+// mesh.broadcaster.broadcast('update', {some: 'azaza'})
+// mesh.broadcaster.receive('update', data=>{
+//    
+// })
 
 app.get('/', function (req, res) {
     res.send(fs.readFileSync('./public/index.html', 'utf8'))

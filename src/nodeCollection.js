@@ -1,79 +1,116 @@
+const MeshNode = require('./meshNode.js')
+const EventEmitter = require('events')
+
 class Collection {
-    constructor(ownerId) {
+    constructor(ownerId, role) {
         this.ownerId = ownerId
-        this.list = {}
+        this.role = role
+        
+        this.list = []
+        this.inputs = []
+        this.outputs = []
+        
+        this.events = new EventEmitter()
     }
 
     add(node) {
-        this._add(node)
+        this._addToList(node)
+    }
+
+    getById(id){
+        for (let n of this.list){
+            if (n.id === id) return n;
+        }
+        return null;
     }
 
     addMany(nodes) {
-        for (let node of nodes) {
-            this._add(node)
-        }
+        for (let node of nodes) this._addToList(node)
+    }
+    
+    addInput(node){
+        this.inputs.push(this.packNode(node))
+    }
+    
+    getInputs(){
+        return this.inputs;
+    }
+    
+    addOutput(node){
+        this.outputs.push(this.packNode(node))
+    }
+    
+    getOutputs(){
+        return this.outputs;
+    }
+    
+    hasOutput(){
+        return this.outputs.length > 0
     }
 
     remove(node) {
+        Collection.notImplemented()
     }
 
     clear() {
-        for (let key in this.list) {
-            this.list[key].length = 0
-        }
+        this.list.length = 0
+    }
+    
+    getByRole(role){
+        let filtered = this.list.filter(n=>n.role === role)
+        if (!filtered || filtered.length === 0) return [];
+        return filtered;
     }
 
     getRandomByRole(role) {
-        let arr = this.list[role]
-        if (!arr) return null;
-        return arr[randomIntInc(0, arr.length - 1)]
+        let filtered = this.getByRole(role)
+        if (filtered.length === 0) return null;
+        return filtered[randomIntInc(0, filtered.length - 1)]
     }
 
     getRandom() {
-        let rolesCount = 0
-        for (let role in this.list)rolesCount++;
-        let selectedRole = randomIntInc(0, rolesCount - 1)
-        let selectedArray = []
-        rolesCount = 0
-        for (let role in this.list) {
-            if (selectedRole === rolesCount) {
-                selectedArray = this.list[role]
-                break;
-            }
-            rolesCount++;
-        }
-        return selectedArray[randomIntInc(0, selectedArray.length - 1)]
+        if (this.list.length === 0) return null;
+        return this.list[randomIntInc(0, this.list.length - 1)]
+    }
+
+    getConnectCandidate(){
+        //TODO Организовать "умный" алгоритм выбора ноды для подключения
+        // let middle = this.list.reduce((sum, node)=>sum + node.nodesCount, 0) / this.list.length
+        return this.getRandom()
     }
 
     get length() {
-        let counter = 0
-        for (let key in this.list) {
-            counter += this.list[key].length
-        }
-        return counter;
-    }
-
-    _add(node) {
-        let arr = this.list[node.role] || []
-        if (this._contains(arr, node.id)) return;
-        arr.push(node)
-        this.list[node.role] = arr
-    }
-
-    _contains(arr, id) {
-        return arr.some(n=>n.id === id)
+        return this.list.length;
     }
 
     getList() {
-        let res = []
-        for (let key in this.list) {
-            res = res.concat(this.list[key])
+        return this.list;
+    }
+
+    _addToList(node) {
+        let alreadyHave = this.getById(node.id)
+        if (alreadyHave) {
+            if (!alreadyHave.socket) alreadyHave.socket = node.socket;
+            return;
         }
-        return res;
+        this.list.push(this.packNode(node))
+        if (node.id !== this.ownerId && node.role === this.role) this.events.emit('sameRole', node)
+    }
+
+    _contains(id) {
+        return this.getById(id) !== null
+    }
+    
+    packNode(node){
+        return node instanceof MeshNode ? node : new MeshNode(node)
     }
 
     toString() {
         return JSON.stringify(this.list)
+    }
+    
+    static notImplemented(){
+        throw new Error('notImplemented')
     }
 }
 

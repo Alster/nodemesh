@@ -6,20 +6,34 @@ const uuid = require('uuid-v4')
 const getPort = require('get-port')
 const NodesCollection = require('./nodeCollection.js')
 const Broadcaster = require('./broadcaster.js')
+const MeshNode = require('./meshNode.js')
+const Roles = require('./../roles.js')
 
 class Mesh {
     constructor(opts) {
-        this.role = []
+        this.role = null
         this.httpServer = null
         this.port = 0
         Object.assign(this, opts)
         this.id = uuid()
-        this.nodes = new NodesCollection(this.id)
-        this.nodeOut = null
-        this.nodesIn = []
-        this.webApps = []
+        this.server = null
 
-        this.broadcaster = new Broadcaster()
+        this.nodes = new NodesCollection(this.id, this.role)
+        this.nodes.events.on('sameRole', node=> {
+            if (node.socket === null || node.socket === undefined) {
+                // console.log(`${this.port} need ${node.port}`)
+                // co(this._tryConnect(node))
+            }
+            // let srvSockets = this.server.sockets.sockets;
+            // let len = Object.keys(srvSockets).length
+            // if (len > 0) console.log(`${this.port} Clients ${len}`)
+        })
+        this.broadcaster = new Broadcaster(this.id, this.nodes, this.role)
+        this.broadcaster.receive('nodeBirth', birthed=>{
+            let holder = this.nodes.getById(birthed.holder)
+            if (holder) holder.nodesCount += 1
+            this.nodes.add(birthed.info)
+        })
 
         this.connectingStarted = false
     }
@@ -35,14 +49,15 @@ class Mesh {
         let iterator = 0
         let node = null
         let socket = null
-        while (!this.nodeOut && iterator < 99) {
+        while (!this.nodes.hasOutput() && iterator < 99) {
             iterator++
-            node = this.nodes.getRandom(this.role)
+            node = this.nodes.getConnectCandidate(this.role)
             if (node.id === this.id) continue;
             yield this._tryToGetConnectionNode(node)
         }
 
-        console.info(`${this.port} started`)
+        if (this.nodes.hasOutput()) console.info(`${this.port} started`)
+        else console.warn(`${this.port} Cannot connect to any`)
     }
 
     _startListen(port) {
@@ -66,77 +81,77 @@ class Mesh {
         //When some node connected to us
         this.server.on('connection', socket=> {
             socket.on('hello', (data, sendAnswer)=> {
-                this.nodesIn.push({
-                    info: data.info,
-                    socket: socket
-                })
-                this.nodes.add(data.info)
-                if (this.nodeOut){
+                let node = new MeshNode(Object.assign({}, data.info, {socket: socket}))
+                this.nodes.addInput(node)
+                this.nodes.add(node)
+                if (this.nodes.hasOutput()) {
                     sendAnswer({nodes: this.nodes.getList(), accept: true})
                 }
                 else {
-                    sendAnswer({nodes: this.nodes.getList(), accept: this.nodes.length > 0})
-                    co(this._tryToGetConnectionNode(data.info))
+                    sendAnswer({nodes: this.nodes.getList(), accept: true})
+                    // co(this._tryToGetConnectionNode(this.nodes.getConnectCandidate()))
                 }
-                this._broadcastEvent('nodeBirth', {info: data.info}, data.info.id)
 
-                socket.on('nodeBirth', birthed=> {
-                    this.nodes.add(birthed.info)
-                    this._broadcastEvent('nodeBirth', {info: birthed.info}, data.info.id)
-                })
+                this.broadcaster.broadcast('nodeBirth', {info: node, holder: this.id}, node.id)
+                this.broadcaster.applyNode(node)
             })
 
             socket.on('imWebApp', (data, sendAnswer)=> {
                 this._initializeAPIForWebApp(socket)
-                this.webApps.push(socket)
+                this.broadcaster.addWebApp(socket)
                 sendAnswer()
             })
 
             socket.on('getList', (data, sendAnswer)=> {
-                sendAnswer({nodes: this.nodes.getList(), connectedTo: this.nodeOut ? this.nodeOut.info : null})
+                sendAnswer({
+                    nodes: this.nodes.getList(),
+                    outputs: this.nodes.hasOutput() ? this.nodes.getOutputs() : null
+                })
             })
 
-            socket.on('disconnect', ()=> {
-                let index = this.webApps.indexOf(socket)
-                if (index !== -1 ){
-                    this.webApps.splice(index, 1)
-                }
-            })
+            // socket.on('getPlayers', (data, sendAnswer)=> {
+            //     this.broadcaster.toAllOfRole(Roles.GameServer, 'getPlayer', 'someId', result=> {
+            //         console.log(`Getted getPlayer result: ${JSON.stringify(result)}`)
+            //     })
+            //     // sendAnswer({
+            //     //     nodes: this.nodes.getList(),
+            //     //     outputs: this.nodes.hasOutput() ? this.nodes.getOutputs() : null
+            //     // })
+            // })
+
+            socket.on('disconnect', ()=> this.broadcaster.removeWebApp(socket))
         })
     }
 
     *_tryToGetConnectionNode(node) {
         let socket = yield this._tryConnect(node)
-        if (socket) {
-            this.nodeOut = {
-                info: node,
-                socket: socket
-            }
-        }
+        if (socket) this.nodes.addOutput(node)
     }
 
     _tryConnect(node) {
         if (!node) throw new Error('nodeIsNull')
         return new Promise((resolve, reject)=> {
-            let socket = Client.connect(`http://${node.ip}:${node.port}`)
+            node.socket = Client.connect(`http://${node.ip}:${node.port}`)
 
             //When we connected to some node
-            socket.on('connect', ()=> {
-                socket.emit('hello', {info: this.getInfo()}, res=> {
-                    if (!res.accept) return resolve(null)
-                    this.nodes.clear()
+            node.socket.on('connect', ()=> {
+                node.socket.emit('hello', {info: this.getInfo()}, res=> {
+                    if (!res.accept) {
+                        node.socket.close()
+                        node.socket = null
+                        return resolve(null);
+                    }
+                    // console.log(`${this.port} > ${node.port}`)
+                    // this.nodes.clear()
                     this.nodes.addMany(res.nodes)
-                    resolve(socket)
+                    resolve(node.socket)
+
+                    this.broadcaster.applyNode(node)
                 })
             })
-
-            socket.on('connect_error', err=> {
+            node.socket.on('connect_error', err=> {
+                node.socket = undefined
                 resolve(null)
-            })
-
-            socket.on('nodeBirth', data=> {
-                this.nodes.add(data.info)
-                this._broadcastEvent('nodeBirth', {info: data.info}, node.id)
             })
         })
     }
@@ -150,40 +165,12 @@ class Mesh {
             master.on('connect', ()=> {
                 master.emit('helloMaster', {info: this.getInfo()}, data=> {
                     data.nodes = JSON.parse(data.nodes)
-
                     if (this.nodes.length === 0) this.nodes.addMany(data.nodes)
-
                     master.close()
                     resolve()
                 })
             })
-
-            master.on('connect_error', err=> {
-                reject(err)
-            })
-        })
-    }
-
-    _broadcastEvent(action, data, senderId) {
-        let exclude = [senderId]
-        if (this.nodeOut && this.nodeOut.info.id !== senderId) {
-            this.nodeOut.socket.emit(action, data)
-            exclude.push(this.nodeOut.info.id)
-        }
-        this._broadcastToNodesIn(action, data, exclude)
-        this._broadcastToWebApps(action, data)
-    }
-
-    _broadcastToWebApps(action, data) {
-        this.webApps.forEach(app=> {
-            app.emit(action, data)
-        })
-    }
-
-    _broadcastToNodesIn(action, data, exclude) {
-        this.nodesIn.forEach(n=> {
-            if (exclude.some(s=>s === n.info.id)) return;
-            n.socket.emit(action, data)
+            master.on('connect_error', err=> reject(err))
         })
     }
 
@@ -192,8 +179,14 @@ class Mesh {
             ip: ip.address(),
             port: this.port,
             id: this.id,
-            role: this.role
+            role: this.role,
+            nodesCount: this.nodes.length
         }
+    }
+
+    consoleLogFor5000(log) {
+        if (this.port !== 5000) return;
+        console.log(`${this.port} ${log}`)
     }
 }
 

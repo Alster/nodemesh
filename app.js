@@ -20,7 +20,7 @@ function spawnNode(role, count) {
                     env: Object.assign({}, process.env, {role: role, port: nodePortCounter})
                 }))
             nodePortCounter++
-        }, 500 + (10 * i))
+        }, 500 + (0 * i))
     }
 }
 
